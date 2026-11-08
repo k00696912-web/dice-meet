@@ -112,7 +112,7 @@ export default function SessionsPage() {
       </Card>
 
         {loading && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
             {Array.from({ length: 6 }).map((_, i) => (
               <SkeletonCard key={i} />
             ))}
@@ -151,7 +151,7 @@ export default function SessionsPage() {
         )}
 
         {!loading && !error && sessions.length > 0 && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
             {sessions.map((session) => (
               <SessionCard key={session.id} session={session} />
             ))}
