@@ -12,3 +12,7 @@ export { Input, Textarea, Select, FormField } from "./Input";
 export { Modal } from "./Modal";
 export { Alert } from "./Alert";
 export { H1, H2, H3, H4, Lead, P, Muted } from "./Typography";
+export { Avatar } from "./Avatar";
+export { Tabs, type TabItem } from "./Tabs";
+export { EmptyState } from "./EmptyState";
+export { Skeleton, SkeletonText, SkeletonCircle, SkeletonCard } from "./Skeleton";

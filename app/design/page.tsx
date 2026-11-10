@@ -23,7 +23,15 @@ import {
   Lead,
   P,
   Muted,
+  Avatar,
+  Tabs,
+  EmptyState,
+  Skeleton,
+  SkeletonText,
+  SkeletonCircle,
+  SkeletonCard,
 } from "@/components/ui";
+import { Icon } from "@/components/dashboard/icons";
 
 const SWATCHES = [
   { name: "背景 / 羊皮纸", hex: "#F3F0E8", className: "bg-background", text: "text-foreground" },
@@ -212,6 +220,80 @@ export default function DesignPage() {
           </FormField>
         </div>
       </Modal>
+
+      {/* Avatar */}
+      <Section title="头像 Avatar" subtitle="首字母降级 · 多尺寸 · 在线状态">
+        <Card>
+          <CardContent className="flex flex-wrap items-end gap-6">
+            <Avatar name="老李" size="sm" />
+            <Avatar name="老李" size="md" />
+            <Avatar name="老李" size="lg" />
+            <Avatar name="老李" size="xl" />
+            <Avatar name="张DM" size="md" online />
+            <Avatar name="小王" size="lg" online />
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* Tabs */}
+      <Section title="标签页 Tabs" subtitle="深绿选中 · 禁用 · 方向键切换 · 内嵌内容">
+        <Card>
+          <CardContent>
+            <Tabs
+              defaultKey="intro"
+              items={[
+                { key: "intro", label: "简介", content: <P>剑湾北境的失踪案，等待冒险者调查。</P> },
+                { key: "members", label: "成员", content: <P>老李（DM）· 小王 · 张DM</P> },
+                { key: "reviews", label: "评价", disabled: true },
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* EmptyState */}
+      <Section title="空状态 EmptyState" subtitle="标题 / 描述 / 图标 / 操作，跨场景复用">
+        <div className="grid sm:grid-cols-2 gap-6">
+          <Card>
+            <EmptyState
+              icon={<Icon name="scroll" className="w-8 h-8" />}
+              title="暂无跑团"
+              description="没有符合条件的跑团，换个筛选，或成为第一个发布招募的 DM。"
+              action={
+                <Button href="/create" variant="outline">
+                  <Icon name="megaphone" className="w-4 h-4" /> 发布跑团
+                </Button>
+              }
+            />
+          </Card>
+          <Card>
+            <EmptyState
+              icon={<Icon name="bot" className="w-8 h-8" />}
+              title="暂无 NPC"
+              description="还没有配置 AI 伴随 NPC，缺人时让它们补位。"
+              action={<Button variant="accent" disabled>配置 NPC · 待开放</Button>}
+            />
+          </Card>
+        </div>
+      </Section>
+
+      {/* Skeleton */}
+      <Section title="骨架屏 Skeleton" subtitle="矩形 / 文本 / 圆形 / 卡片 · 尊重减少动态偏好">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard />
+          <SkeletonCard />
+          <Card>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <SkeletonCircle size="md" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+              <SkeletonText lines={3} />
+              <Skeleton className="h-10 w-full rounded-lg" />
+            </CardContent>
+          </Card>
+        </div>
+      </Section>
     </div>
   );
 }
