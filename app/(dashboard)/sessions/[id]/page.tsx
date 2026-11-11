@@ -29,6 +29,9 @@ const STATUS_META: Record<Session["status"], { label: string; variant: BadgeVari
 
 const WEEK = ["一", "二", "三", "四", "五", "六", "日"];
 
+// 面向用户的故障文案：原始数据库错误只进 console，不进 DOM
+const LOAD_ERROR_COPY = "公告板暂时读不到这条委托，可能是网络波动或公会服务正在维护。";
+
 // 演示用冒险者昵称：真实成员名单尚未接入，仅用于填充已占席位（人数为真实数据）
 const DEMO_PLAYERS = [
   "林间游侠",
@@ -101,6 +104,8 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [joinState, setJoinState] = useState<JoinState>("idle");
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -110,14 +115,25 @@ export default function SessionDetailPage() {
     async function load() {
       setLoading(true);
       setError(null);
+      setMissing(false);
       setJoinState("idle");
       try {
         const res = await fetch(`/api/sessions/${id}`);
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "加载失败");
-        if (!cancelled) setSession(json.session);
+        // 接口层已把 PostgREST 的 PGRST116 映射成 404，这里按状态码判定，不解析错误文案
+        if (res.status === 404) {
+          if (!cancelled) setMissing(true);
+          return;
+        }
+        const json = res.ok ? await res.json().catch(() => null) : null;
+        if (!res.ok || !json?.session) {
+          console.error(`[session-detail] 读取失败 id=${id} status=${res.status}`, json?.error);
+          if (!cancelled) setError(LOAD_ERROR_COPY);
+          return;
+        }
+        if (!cancelled) setSession(json.session as Session);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "加载失败");
+        console.error(`[session-detail] 请求异常 id=${id}`, err);
+        if (!cancelled) setError(LOAD_ERROR_COPY);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -126,7 +142,7 @@ export default function SessionDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, retryToken]);
 
   useEffect(() => {
     return () => {
@@ -147,6 +163,8 @@ export default function SessionDetailPage() {
 
   if (loading) return <DetailSkeleton />;
 
+  if (missing) return <SessionNotFound id={id} />;
+
   if (error || !session) {
     return (
       <div className="max-w-2xl">
@@ -154,10 +172,14 @@ export default function SessionDetailPage() {
           <Icon name="arrow-right" className="w-4 h-4 rotate-180" />
           返回跑团大厅
         </Link>
-        <Alert variant="error" title="加载失败" className="mt-4">
-          {error ?? "跑团不存在"}
+        <Alert variant="error" title="暂时读不到这条委托" className="mt-4">
+          {error ?? LOAD_ERROR_COPY}
         </Alert>
-        <div className="mt-6">
+        <div className="flex flex-wrap gap-3 mt-6">
+          <Button onClick={() => setRetryToken((t) => t + 1)}>
+            <Icon name="compass" className="w-4 h-4" />
+            重新加载
+          </Button>
           <Button href="/sessions" variant="outline">回到跑团大厅</Button>
         </div>
       </div>
@@ -737,6 +759,47 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
       <dd className={`text-sm text-primary font-medium text-right min-w-0 truncate ${mono ? "font-mono text-xs" : ""}`}>
         {value}
       </dd>
+    </div>
+  );
+}
+
+function SessionNotFound({ id }: { id: string }) {
+  return (
+    <div className="max-w-2xl">
+      <Link
+        href="/sessions"
+        className="inline-flex items-center gap-1.5 text-sm text-accent-600 hover:text-accent-700 mb-4"
+      >
+        <Icon name="arrow-right" className="w-4 h-4 rotate-180" />
+        返回跑团大厅
+      </Link>
+
+      <Card>
+        <CardContent className="p-6 sm:p-8">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wider text-accent-600 mb-3">
+            <Icon name="scroll" className="w-3.5 h-3.5" />
+            冒险者公会 · 委托详情
+          </p>
+          <h1 className="font-serif text-2xl sm:text-3xl font-bold text-primary tracking-tight">
+            找不到这个跑团
+          </h1>
+          <p className="text-muted text-base mt-3 leading-relaxed">
+            公告板上没有编号为{" "}
+            <code className="px-1.5 py-0.5 rounded bg-primary/5 text-foreground/80 break-all">{id}</code>{" "}
+            的委托。可能是链接抄错、委托已被撤回，或这个团已经结束 —— 已结束与已取消的委托不对外开放读取。
+          </p>
+          <div className="flex flex-wrap gap-3 mt-6">
+            <Button href="/sessions">
+              <Icon name="arrow-right" className="w-4 h-4 rotate-180" />
+              返回跑团大厅
+            </Button>
+            <Button href="/create" variant="outline">
+              <Icon name="megaphone" className="w-4 h-4" />
+              发布新委托
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

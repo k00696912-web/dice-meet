@@ -5,7 +5,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ComponentProps,
   type ReactNode,
 } from "react";
 import {
@@ -22,148 +21,19 @@ import {
 } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
 import type { Session } from "@/lib/types";
-
-type NpcState = "enabled" | "pending" | "disabled";
-// 与 database/schema.sql 中 ai_npcs.relationship 的 CHECK 取值一致
-type Relationship = "ally" | "enemy" | "neutral" | "mysterious";
-type BadgeVariant = NonNullable<ComponentProps<typeof Badge>["variant"]>;
-
-/**
- * 演示 NPC。字段形状对齐 ai_npcs 列：name / personality(TEXT，用「 · 」分隔) /
- * background / relationship / model / enabled。
- * state 中的 pending 与 lastActive 在数据库里没有对应列，页面已标注为演示。
- */
-interface Npc {
-  key: string;
-  name: string;
-  personality: string;
-  background: string;
-  relationship: Relationship;
-  model: string;
-  state: NpcState;
-  /** ai_npcs.session_id 的演示绑定：优先匹配该系统，否则按序号取公告板委托 */
-  preferSystem: string;
-  sessionSlot: number;
-  /** 演示：真实值需从 ai_npc_logs.created_at 聚合推导 */
-  lastActive: string;
-}
-
-const NPCS: Npc[] = [
-  {
-    key: "vex",
-    name: "维克斯",
-    personality: "多疑 · 话少 · 守口如瓶",
-    background: "夜之城的老牌义体医生，只在玩家伤重站不稳时才会出现。",
-    relationship: "mysterious",
-    model: "auto",
-    state: "enabled",
-    preferSystem: "Cyberpunk RED",
-    sessionSlot: 0,
-    lastActive: "12 分钟前",
-  },
-  {
-    key: "ashawk",
-    name: "灰隼",
-    personality: "健谈 · 好奇 · 爱指路",
-    background: "北境小镇酒馆的老板娘，掌握着商队与佣兵的所有传闻。",
-    relationship: "ally",
-    model: "auto",
-    state: "enabled",
-    preferSystem: "D&D 5e",
-    sessionSlot: 1,
-    lastActive: "1 小时前",
-  },
-  {
-    key: "silent-mr",
-    name: "沈默先生",
-    personality: "礼貌 · 阴冷 · 步步紧逼",
-    background: "总在调查员最脆弱时登门的绅士，没有人记得是谁放他进来的。",
-    relationship: "enemy",
-    model: "auto",
-    state: "pending",
-    preferSystem: "COC 7th",
-    sessionSlot: 2,
-    lastActive: "昨天",
-  },
-  {
-    key: "azhu",
-    name: "阿烛",
-    personality: "活泼 · 追问 · 记仇",
-    background: "一盏会说话的引魂灯，专门给第一次跑团的玩家解释规则。",
-    relationship: "neutral",
-    model: "auto",
-    state: "enabled",
-    preferSystem: "泛用无界",
-    sessionSlot: 3,
-    lastActive: "昨天",
-  },
-  {
-    key: "screw",
-    name: "螺丝",
-    personality: "嘴贫 · 热心 · 贪小便宜",
-    background: "无人机修师，能用报废零件拼出一把响得起来的枪。",
-    relationship: "ally",
-    model: "auto",
-    state: "enabled",
-    preferSystem: "Cyberpunk RED",
-    sessionSlot: 4,
-    lastActive: "2 天前",
-  },
-  {
-    key: "whitecoat",
-    name: "白大褂",
-    personality: "冷静 · 术语多 · 回避",
-    background: "疗养院的夜班医生，病历本里永远缺关键的一页。",
-    relationship: "mysterious",
-    model: "auto",
-    state: "pending",
-    preferSystem: "COC 7th",
-    sessionSlot: 5,
-    lastActive: "3 天前",
-  },
-  {
-    key: "laohe",
-    name: "老何",
-    personality: "沉稳 · 谨慎 · 一诺千金",
-    background: "佣兵团的军需官，负责在玩家冲动时提醒他们代价。",
-    relationship: "neutral",
-    model: "auto",
-    state: "disabled",
-    preferSystem: "D&D 5e",
-    sessionSlot: 6,
-    lastActive: "7 天前",
-  },
-  {
-    key: "fog",
-    name: "雾",
-    personality: "沉默 · 模仿 · 难以捉摸",
-    background: "跟着队伍翻山的山雾，会重复玩家最后一句说过的话。",
-    relationship: "enemy",
-    model: "auto",
-    state: "disabled",
-    preferSystem: "泛用无界",
-    sessionSlot: 7,
-    lastActive: "2 周前",
-  },
-];
-
-const RELATIONSHIP_META: Record<Relationship, { label: string; variant: BadgeVariant; hint: string }> = {
-  ally: { label: "盟友", variant: "success", hint: "站在玩家一侧" },
-  neutral: { label: "中立", variant: "neutral", hint: "各取所需" },
-  mysterious: { label: "神秘", variant: "accent", hint: "动机未知" },
-  enemy: { label: "敌对", variant: "danger", hint: "与玩家作对" },
-};
-
-const STATE_META: Record<NpcState, { label: string; variant: BadgeVariant; icon: IconName; demo: boolean }> = {
-  enabled: { label: "已启用", variant: "success", icon: "shield", demo: false },
-  pending: { label: "待审核", variant: "warning", icon: "clock", demo: true },
-  disabled: { label: "已停用", variant: "neutral", icon: "close", demo: false },
-};
+import {
+  NPCS,
+  RELATIONSHIP_META,
+  STATE_META,
+  pickSession,
+  type Npc,
+  type NpcState,
+} from "./mock-npcs";
 
 const EMPTY_COPY: Record<"all" | NpcState, { title: string; desc: string }> = {
   all: {
     title: "还没有 NPC",
-    desc: "创建功能开放后，你的冒险世界就会有第一批智能角色。",
+    desc: "创建表单已开放（前端演示），等真实落库后这里就会出现你的第一批智能角色。",
   },
   enabled: { title: "暂无已启用 NPC", desc: "当前筛选下没有正在陪伴队伍的 NPC。" },
   pending: { title: "暂无待审核 NPC", desc: "没有等待确认的智能角色。" },
@@ -177,14 +47,6 @@ function tabLabel(text: string, count: number): ReactNode {
       <span className="ml-1 text-xs opacity-60">{count}</span>
     </>
   );
-}
-
-/** 把演示 NPC 绑到公告板真实委托：优先同系统，否则按序号取 */
-function pickSession(sessions: Session[], preferSystem: string, slot: number): Session | undefined {
-  if (sessions.length === 0) return undefined;
-  const bySystem = sessions.find((s) => s.system === preferSystem);
-  if (bySystem) return bySystem;
-  return sessions[slot % sessions.length];
 }
 
 export default function NpcsPage() {
@@ -251,12 +113,11 @@ export default function NpcsPage() {
           <p className="text-muted text-base mt-2">创建、管理和陪伴你的冒险世界中的智能角色。</p>
         </div>
         <div className="flex flex-col items-start sm:items-end gap-1.5 shrink-0">
-          <Button disabled>
+          <Button href="/npcs/create">
             <Icon name="plus" className="w-4 h-4" />
             创建 NPC
-            <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-white/15">待开放</span>
           </Button>
-          <p className="text-xs text-muted">NPC 设定表单将在下一批开放</p>
+          <p className="text-xs text-muted">表单为前端演示，提交暂不写入数据库</p>
         </div>
       </div>
 
@@ -384,7 +245,7 @@ export default function NpcsPage() {
             <BoundaryColumn
               title="本批未做"
               tone="muted"
-              items={["创建 / 编辑表单", "详情页与 secrets、行为边界", "真实 AI 对话与日志写入"]}
+              items={["写入 ai_npcs（创建表单只做到校验与演示反馈）", "编辑设定与 AI 对话", "真实活动日志（ai_npc_logs）"]}
             />
           </div>
         </CardContent>
@@ -494,15 +355,11 @@ function NpcCard({ npc }: { npc: BoundNpc }) {
 
         {/* 详情入口 */}
         <div className="mt-auto pt-4 flex items-center justify-between gap-3 flex-wrap">
-          <span
-            aria-disabled="true"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-muted/60 bg-primary/5 cursor-not-allowed"
-          >
+          <Button href={`/npcs/${npc.key}`} size="sm" variant="outline">
             <Icon name="eye" className="w-4 h-4" />
             查看详情
-            <span className="text-[10px]">待开放</span>
-          </span>
-          <p className="text-xs text-muted/70">行为边界与秘密待详情页展示</p>
+          </Button>
+          <p className="text-xs text-muted/70">行为边界与秘密在详情页展示</p>
         </div>
       </div>
     </Card>

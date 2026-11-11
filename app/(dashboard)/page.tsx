@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Button, Card, CardContent, Badge, H1, H2, Lead, Muted } from "@/components/ui";
+import { Button, Card, CardContent, Badge, H1, H2, Lead, Muted, buttonClasses } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
 import CommissionCard from "@/components/dashboard/CommissionCard";
 import { getPublicClient } from "@/lib/supabase-server";
@@ -10,19 +10,35 @@ export const dynamic = "force-dynamic";
 const DM_EMBED =
   "dm:profiles!sessions_dm_id_fkey(id, username, display_name, avatar_url, role, rating, attendance_rate)";
 
-async function getLatestSessions(): Promise<Session[]> {
+interface BoardResult {
+  sessions: Session[];
+  failed: boolean;
+}
+
+// 查询失败与「查询成功但没有委托」必须分开：否则数据库故障会被伪装成空公告板
+async function getLatestSessions(): Promise<BoardResult> {
   const supabase = getPublicClient();
-  const { data } = await supabase
-    .from("sessions")
-    .select(`*, ${DM_EMBED}`)
-    .in("status", ["recruiting", "ongoing"])
-    .order("created_at", { ascending: false })
-    .limit(6);
-  return (data ?? []) as Session[];
+  try {
+    const { data, error } = await supabase
+      .from("sessions")
+      .select(`*, ${DM_EMBED}`)
+      .in("status", ["recruiting", "ongoing"])
+      .order("created_at", { ascending: false })
+      .limit(6);
+
+    if (error) {
+      console.error("[home] 公告板委托读取失败:", error.code, error.message);
+      return { sessions: [], failed: true };
+    }
+    return { sessions: (data ?? []) as Session[], failed: false };
+  } catch (err) {
+    console.error("[home] 公告板请求异常:", err);
+    return { sessions: [], failed: true };
+  }
 }
 
 export default async function Home() {
-  const sessions = await getLatestSessions();
+  const { sessions, failed } = await getLatestSessions();
 
   return (
     <div>
@@ -91,7 +107,27 @@ export default async function Home() {
           </Button>
         </div>
 
-        {sessions.length > 0 ? (
+        {failed ? (
+          <Card>
+            <CardContent className="text-center py-16">
+              <div className="flex justify-center mb-4 text-muted/40">
+                <Icon name="scroll" className="w-12 h-12" />
+              </div>
+              <p className="text-muted mb-2">公告板暂时读不到委托。</p>
+              <p className="text-sm text-muted/80 mb-6">
+                可能是网络波动或公会服务正在维护，稍后重试即可；上面的快捷入口不受影响。
+              </p>
+              <div className="flex flex-wrap justify-center gap-3">
+                <a href="/" className={buttonClasses("primary", "md")}>
+                  <Icon name="compass" className="w-4 h-4" /> 重新加载公告板
+                </a>
+                <Button href="/create" variant="outline">
+                  <Icon name="megaphone" className="w-4 h-4" /> 去发布招募
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : sessions.length > 0 ? (
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
             {sessions.map((session) => (
               <CommissionCard key={session.id} session={session} />
@@ -132,8 +168,8 @@ export default async function Home() {
               </p>
             </div>
             <div className="flex flex-col gap-3 md:w-56">
-              <Button variant="accent" disabled>
-                <Icon name="bot" className="w-4 h-4" /> 配置我的 NPC · 待开放
+              <Button href="/npcs" variant="accent">
+                <Icon name="bot" className="w-4 h-4" /> 配置我的 NPC
               </Button>
               <Button
                 href="/sessions"
