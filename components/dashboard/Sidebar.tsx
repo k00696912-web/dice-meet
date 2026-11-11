@@ -28,17 +28,19 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: "我的冒险",
     items: [
-      { label: "我的跑团", icon: "swords", soon: true },
-      { label: "我的申请", icon: "inbox", soon: true },
+      { label: "我的跑团", icon: "swords", href: "/my-sessions" },
+      { label: "我的应征", icon: "inbox", soon: true },
       { label: "消息中心", icon: "bell", soon: true },
+      { label: "冒险者档案", icon: "shield", href: "/profile" },
     ],
   },
   {
     title: "创作者",
     items: [
       { label: "发布招募", icon: "megaphone", href: "/create" },
+      { label: "申请管理", icon: "inbox", href: "/applications" },
       { label: "DM 工作台", icon: "dice", soon: true },
-      { label: "AI NPC 工作台", icon: "bot", soon: true },
+      { label: "AI NPC 工作台", icon: "bot", href: "/npcs" },
     ],
   },
 ];

@@ -9,6 +9,10 @@ const TITLES: { match: (p: string) => boolean; title: string; sub: string }[] = 
   { match: (p) => p.startsWith("/sessions/"), title: "委托详情", sub: "查看这份冒险委托" },
   { match: (p) => p.startsWith("/sessions"), title: "跑团大厅", sub: "浏览公会发布的委托" },
   { match: (p) => p.startsWith("/create"), title: "发布招募", sub: "以公会之名发布委托" },
+  { match: (p) => p.startsWith("/applications"), title: "申请管理", sub: "审核冒险者的加入申请" },
+  { match: (p) => p.startsWith("/my-sessions"), title: "我的跑团", sub: "你主持与参与的冒险" },
+  { match: (p) => p.startsWith("/npcs"), title: "AI NPC 工作台", sub: "管理你的智能角色" },
+  { match: (p) => p.startsWith("/profile"), title: "冒险者档案", sub: "你的公会信用档案" },
 ];
 
 export default function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
@@ -26,9 +30,10 @@ export default function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
       </button>
 
       <div className="min-w-0">
-        <h1 className="font-serif font-semibold text-primary text-lg leading-tight truncate">
+        {/* 页面级 <h1> 由各页自身提供，顶栏标题不再用 h1，避免一页两个 h1 */}
+        <p className="font-serif font-semibold text-primary text-lg leading-tight truncate">
           {current.title}
-        </h1>
+        </p>
         <p className="text-xs text-muted truncate hidden sm:block">{current.sub}</p>
       </div>
 
