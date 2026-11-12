@@ -38,12 +38,13 @@ dice-meet/
 │   │   ├── profile/page.tsx          # 冒险者档案（客户端，纯前端 Mock）
 │   │   └── my-sessions/page.tsx      # 我的跑团（客户端，纯前端 Mock）
 │   ├── api/
-│   │   ├── sessions/route.ts         # GET 列表+筛选 / POST 创建（需 Bearer token）
+│   │   ├── sessions/route.ts         # GET 列表+筛选 / POST 创建（Cookie Session 认证）
 │   │   └── sessions/[id]/route.ts    # GET 详情
-│   ├── login/page.tsx                # 登录（组外，前端模拟，无侧边栏）
-│   ├── register/page.tsx             # 注册（组外，前端模拟）
+│   ├── auth/callback/route.ts        # 邮箱确认回调：交换会话 + 建立档案（返回 HTML）
+│   ├── login/page.tsx                # 登录（组外，真实 signInWithPassword，无侧边栏）
+│   ├── register/page.tsx             # 注册（组外，真实 signUp + 确认邮件）
 │   ├── design/page.tsx               # 组件展示页
-│   └── test-db/page.tsx              # 数据库连接测试
+│   └── test-db/page.tsx              # 数据库连接测试（仅开发态，生产 notFound → 404）
 ├── components/
 │   ├── ui/                           # 自建通用 UI 库
 │   │   ├── index.ts                  # barrel 导出
@@ -66,8 +67,12 @@ dice-meet/
 │       └── CommissionCard.tsx        # 首页公告板的跑团委托卡片
 ├── lib/
 │   ├── types.ts                      # Profile / Session / CreateSessionInput + 联合类型
-│   ├── supabase.ts                   # 浏览器端 anon client（单例导出 supabase）
-│   └── supabase-server.ts          # getPublicClient / getAuthClient / extractToken
+│   ├── supabase.ts                   # 浏览器唯一 client（createBrowserClient，会话存 Cookie）
+│   ├── supabase-server.ts            # getPublicClient / createServerSupabase（SSR Cookie 会话）
+│   ├── auth-routes.ts                # 私有路径前缀 + safeRedirectPath（挡站外跳转）
+│   ├── auth-client.ts                # signOutUser()（方法已就绪，退出 UI 属 10C）
+│   └── profile.ts                    # ensureProfileForUser 建档 / readProfileIdentity 只校验
+├── middleware.ts                     # 每请求 getUser()：刷新 Cookie、保护私有路由、放行 /api
 ├── database/
 │   ├── schema.sql                    # 6 表 + 启用 RLS + 索引 + updated_at 触发器
 │   ├── policies.sql                  # RLS 策略
@@ -108,8 +113,10 @@ RootLayout (app/layout.tsx)
 |---|---|---|
 | 首页 `/` | **服务端**（`async`，`export const dynamic = "force-dynamic"`） | 直接 `getPublicClient()` 查 Supabase，取最新 6 条 |
 | 跑团大厅 / 详情 / 发布 | **客户端**（`"use client"`） | `fetch` 调用 API Routes |
-| profile / my-sessions / login / register | **客户端** | 前端 Mock，无网络请求 |
-| API Routes | 服务端（`app/api/**/route.ts`） | `getPublicClient` / `getAuthClient` |
+| profile / my-sessions / applications / npcs | **客户端** | 前端 Mock，无网络请求 |
+| login / register | **客户端** | 直连 Supabase Auth（`signInWithPassword` / `signUp`），不经 API |
+| API Routes | 服务端（`app/api/**/route.ts`） | `getPublicClient`（公开读）/ `createServerSupabase`（身份写入） |
+| 私有路由保护 | 边缘（`middleware.ts`） | `getUser()` 校验 Cookie，未登录 307 → `/login?redirect=…` |
 
 > 设计取舍：首页服务端渲染利于首屏与 SEO；交互页用客户端 fetch + API，便于筛选/加载态。详见 [DECISIONS.md](./DECISIONS.md)。
 
@@ -144,17 +151,18 @@ RootLayout (app/layout.tsx)
 
 ## 五、数据访问架构
 
-### 三个 Supabase 入口（`lib/`）
-1. `lib/supabase.ts`：浏览器端单例 `supabase = createClient(url, anonKey)`。用于客户端组件（如 `create` 页 `auth.getSession()`、`test-db` 直查）。
+### Supabase 入口（`lib/`）
+1. `lib/supabase.ts`：浏览器唯一 client，`createBrowserClient(url, anonKey)`。会话写在 Cookie（不是 localStorage），因此 middleware 与服务端能读到同一份登录态。用于登录/注册页与 `signOutUser()`。
 2. `lib/supabase-server.ts`：
    - `getPublicClient()`：anon client，用于公开读（API GET、首页服务端查询）。
-   - `getAuthClient(accessToken)`：带 `Authorization: Bearer <token>` 头的 client，用于以用户身份写入（API POST），RLS 按该用户评估。
-   - `extractToken(request)`：从 `Authorization: Bearer ` 头解析 token。
+   - `createServerSupabase()`：在请求作用域内用 `cookies()` 构造 SSR client；`auth.getUser()` 校验后以该身份写入。Next 14.2.5 的 `cookies()` 是**同步** API，不能 `await`。
+   - 旧的 `getAuthClient(accessToken)` / `extractToken(request)`（浏览器手工拼 Bearer）已在批次 10B-3 删除。
 
 ### 安全边界
 - 全程仅用 **anon key**，无 service-role key。**RLS 是唯一安全边界**（见 [DATABASE.md](./DATABASE.md)）。
 - 公开读：profiles、reviews 全公开；sessions 仅 `recruiting`/`ongoing` 公开。
-- 写入：API POST 转发用户 Bearer token，`getAuthClient` 使 RLS 以真实用户身份校验 `auth.uid() = dm_id`。
+- 写入：API POST 用 SSR Cookie 会话，`auth.uid()` 由服务端会话生效，RLS 校验 `auth.uid() = dm_id`；身份字段不接受客户端传入。
+- 建档：只有 `/auth/callback` 会写 `profiles`（走 `profiles_insert_own`），业务 API 只校验档案是否存在。
 
 ### 类型契约（`lib/types.ts`）
 - `UserRole = "player" | "dm" | "both"`

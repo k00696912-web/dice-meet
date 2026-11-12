@@ -57,6 +57,13 @@
 ### 侧边栏接线（本地已完成，**尚未提交**）
 - `components/dashboard/Sidebar.tsx` 的「我的跑团」从 `soon: true` 改为 `href: "/my-sessions"`，active 高亮正常
 
+### 批次 09D / 10B — 数据库探测门禁 + 真实认证底座（本地已完成）
+- **09D**：`/test-db` 改为服务端 `NODE_ENV` 门禁，生产构建 `notFound()` → 404；探测逻辑拆到 `DbProbe.tsx`
+- **10B-1**：`@supabase/ssr` 接入，浏览器/服务端 client 分离，`middleware.ts` 每请求 `getUser()` 刷新 Cookie 并保护私有路由；`lib/auth-routes.ts` 收口私有前缀与 `safeRedirectPath`
+- **10B-2**：真实 `signUp` + 确认邮件；`/auth/callback` 交换会话并用 `ensureProfileForUser`（查→插→冲突重查）建档，页面只输出状态清单不泄漏令牌
+- **10B-3**：登录改真实 `signInWithPassword`；`signOutUser()` 就绪（暂无 UI）；`POST /api/sessions` 从手工 Bearer 改为 Cookie Session，缺档案返回 403 `PROFILE_NOT_FOUND`、读失败 503 `PROFILE_CHECK_FAILED`
+- **10B-4**：全量回归（tsc / ESLint / build / dev+prod 路由 / 375·768·1280 / 生产敏感信息扫描）通过；匿名与伪造身份一律 401，公开 GET 不受影响
+
 ---
 
 ## 二、页面 / 路由清单与数据接入状态
@@ -66,23 +73,26 @@
 | `/` | `app/(dashboard)/page.tsx` | 服务端（`force-dynamic`） | **真实 DB**（直查 Supabase） |
 | `/sessions` | `app/(dashboard)/sessions/page.tsx` | 客户端 | **真实 DB**（`GET /api/sessions`） |
 | `/sessions/[id]` | `app/(dashboard)/sessions/[id]/page.tsx` | 客户端 | **真实 DB**（`GET /api/sessions/[id]`） |
-| `/create` | `app/(dashboard)/create/page.tsx` | 客户端 | API 就绪（`POST /api/sessions`），**受真实登录门控** |
+| `/create` | `app/(dashboard)/create/page.tsx` | 客户端 | **真实写入**（`POST /api/sessions`，Cookie Session） |
 | `/profile` | `app/(dashboard)/profile/page.tsx` | 客户端 | **前端 Mock** |
 | `/my-sessions` | `app/(dashboard)/my-sessions/page.tsx` | 客户端 | **前端 Mock** |
-| `/login` | `app/login/page.tsx` | 客户端 | **前端 Mock**（无真实认证） |
-| `/register` | `app/register/page.tsx` | 客户端 | **前端 Mock** |
+| `/login` | `app/login/page.tsx` | 客户端 | **真实 Auth**（`signInWithPassword`） |
+| `/register` | `app/register/page.tsx` | 客户端 | **真实 Auth**（`signUp` + 确认邮件） |
+| `/auth/callback` | `app/auth/callback/route.ts` | 服务端 Route（`force-dynamic`） | **真实 Auth**（交换会话 + 建档，返回 HTML） |
 | `/design` | `app/design/page.tsx` | 客户端 | 组件展示 |
-| `/test-db` | `app/test-db/page.tsx` | 客户端 | 真实 DB 连接测试 |
+| `/test-db` | `app/test-db/page.tsx` | 客户端 | 真实 DB 连接测试（仅开发态；生产 404） |
 
 > `(dashboard)` 路由组包裹 DashboardShell（侧边栏 + 工具栏），不增加 URL 段；认证页 `/login` `/register` 在组外，无侧边栏。
+> `/create` `/profile` `/my-sessions` `/applications` `/npcs/create` 由 `middleware.ts` 保护，未登录 307 → `/login?redirect=…`；`/npcs` 与 `/npcs/[id]` 本阶段仍匿名可浏览。
 
 ---
 
 ## 三、未完成任务
 
 ### 认证 & 数据绑定（最高优先）
-- [ ] **真实 Supabase Auth**：登录/注册目前为前端模拟，未产生真实 session token
-- [ ] 因无真实 token，`POST /api/sessions` 虽已实现，但当前 UI 流程无法真正走通（`create` 页 `getSession()` 拿不到 session）
+- [x] **真实 Supabase Auth**（批次 10B 完成）：`signUp` + 确认邮件 + `signInWithPassword`，会话由 `@supabase/ssr` 存 Cookie，middleware 服务端校验
+- [x] `POST /api/sessions` 已按 Cookie 身份真实写入（10B-3 实测通过，不再需要手工 Bearer）
+- [ ] 退出 UI 与全站身份展示（`signOutUser()` 方法已就绪，无按钮）→ 10C
 - [ ] `/profile`、`/my-sessions` 从 Mock 绑定到真实数据
 
 ### 跑团参与流程

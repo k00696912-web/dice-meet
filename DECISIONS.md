@@ -41,10 +41,10 @@
 - **原因**：首页服务端渲染利于首屏速度与 SEO；交互页需要筛选/加载态/客户端导航，客户端 fetch + API 更合适。
 - **影响**：存在两条数据访问路径（首页直查 vs API）。两者 DM 嵌入字段需保持一致（首页/列表无 bio，详情有 bio）。
 
-### D7. 仅 anon key，RLS 为唯一安全边界；写入转发用户 token ✅
-- **决定**：应用只持有 `NEXT_PUBLIC_SUPABASE_ANON_KEY`，**不用 service-role key**。公开读用 `getPublicClient`；`POST` 用 `extractToken` + `getAuthClient(token)` 以用户身份写入。
-- **原因**：避免在应用侧持有绕过 RLS 的高权限密钥；让数据库策略统一承担授权，减少服务端鉴权漏洞面。
-- **影响**：所有访问受 RLS 约束；`auth.uid()` 在转发 token 后生效。公开读仅见 recruiting/ongoing 团（详情端点亦然）。
+### D7. 仅 anon key，RLS 为唯一安全边界；写入走 SSR Cookie Session ✅（10B 修订）
+- **决定**：应用只持有 `NEXT_PUBLIC_SUPABASE_ANON_KEY`，**不用 service-role key**。公开读用 `getPublicClient`；需要身份的写入用 `createServerSupabase()` 从请求 Cookie 取会话并经 `auth.getUser()` 服务端校验，随后以 `user.id` 注入 `dm_id`。早期的 `extractToken` + `getAuthClient(token)`（浏览器手工拼 Bearer）已在 10B-3 删除。
+- **原因**：避免在应用侧持有绕过 RLS 的高权限密钥；把身份判定收到服务端，防止客户端伪造 token 或请求体身份字段；Cookie 会话也让刷新与 middleware 保护统一。
+- **影响**：所有访问受 RLS 约束；`auth.uid()` 由服务端会话生效，请求体无法指定 `dm_id`/`user_id`。公开读仅见 recruiting/ongoing 团（详情端点亦然）。浏览器端与服务端各用各自的 client 工厂，不共享实例。
 
 ### D8. DM 嵌入显式指定外键名 ✅
 - **决定**：关联查询用 `dm:profiles!sessions_dm_id_fkey(...)` 显式 FK 名。
@@ -55,10 +55,10 @@
 
 ## C. 认证与分阶段策略
 
-### D9. 认证 UI 先行，前端模拟，不伪造真实状态 ✅
-- **决定**：登录/注册先做前端模拟交互（邮箱校验、密码可见性、模拟提交反馈），**暂不接入 Supabase Auth**；成功提示明确标注"前端模拟…未连接真实认证服务"。
-- **原因**：先打通 UI 与视觉验收，降低批次耦合；明确不伪造登录成功/认证状态，避免误导。用户显式要求"使用前端模拟交互即可"。
-- **影响**：`lib/supabase.ts` client 已就位；`create` 页 `getSession()` 门控，但因无真实 token，`POST /api/sessions` 暂无法经 UI 走通。真实 Auth 是后续写入功能的前置。
+### D9. 认证 UI 先行 → 10B 起改为真实 Supabase Auth ✅（阶段完成）
+- **决定**：早期（Batch 02）登录/注册只做前端模拟交互以完成视觉验收，并显式标注"前端模拟…未连接真实认证服务"。批次 10B 起该模拟已全部移除：注册走 `auth.signUp` + 真实确认邮件，登录走 `auth.signInWithPassword`，会话由 `@supabase/ssr` 落在 Cookie，middleware 按服务端校验结果保护私有路由。
+- **原因**：先解耦 UI 验收与后端联调；真实认证就绪后不留两套路径，避免"客户端有会话"被误当成"服务端已认证"。
+- **影响**：`lib/supabase.ts` 为浏览器唯一 client；发布页不再 `getSession()` 门控，`POST /api/sessions` 已实测真实写入。`/profile`、`/my-sessions`、`/applications`、`/npcs` 仍是标注过的 Mock，接库属 10C/10D。
 
 ### D10. profile / my-sessions 用明确标注的 Mock Data ✅
 - **决定**：两页用前端 Mock，所有统计/列表**明确标注"演示数据/Mock Data，不代表真实数据库统计"**；编辑只更新本地状态，提示"不会写入数据库"。
@@ -125,8 +125,23 @@
 
 ---
 
+## F. 认证底座（批次 10B）
+
+### D21. 单一 Cookie 会话机制，middleware 负责刷新与保护 ✅
+- **决定**：浏览器端只用 `createBrowserClient`（会话存 Cookie，不用 localStorage），服务端只用 `createServerClient` + 请求 Cookie；middleware 对每个请求 `auth.getUser()` 校验并按需刷新，`setAll` 先写回 request 再重建 response，重定向时复制 Set-Cookie；`/api/**` 提前返回，永不 HTML 重定向。
+- **原因**：Next.js 混合渲染下，客户端与服务端必须看到同一份会话，否则 SSR 私有页会闪现在未登录状态；`/api` 若被重定向，前端 `fetch` 会拿到登录页 HTML 而不是 JSON。
+- **影响**：`lib/auth-routes.ts` 集中私有前缀与 `safeRedirectPath()`；新增私有页只需登记前缀。刷新令牌轮转的真实回归需老化会话，属未验证项。
+
+### D22. 建档唯一入口是邮箱确认回调，业务 API 只校验不创建 ✅
+- **决定**：`profiles` 行只在 `/auth/callback` 里由 `ensureProfileForUser()`（查→插→23505 冲突重查）创建，走 RLS `profiles_insert_own`，不用 service-role。业务写入前只调 `readProfileIdentity()` 判断档案存在与否：缺失 → 403 `PROFILE_NOT_FOUND`，读取失败 → 503 `PROFILE_CHECK_FAILED`，两者严格区分。
+- **原因**：把"建档"限定在邮箱已验证的时刻，避免登录页/发布页偷偷写库造成脏档案或用户名覆盖；错误码分离让前端能给出不同中文提示。
+- **影响**：未确认邮箱的账号能登录但发不了招募（403 有明确指引）；`retry=profile` 只重跑建档且对未登录返回 400。测试该分支不得靠删档案或改 RLS，已用隔离测试覆盖。
+
+---
+
 ## 附：尚未决策 / 待定
 - AI NPC 的模型接入方式（`ai_npcs.model` 默认 `'auto'`，具体供应商/调用方式未定）。
-- 真实 Auth 方案细节（Supabase email/password vs OAuth）。
+- ~~真实 Auth 方案细节~~ 已定：Supabase email/password + 确认邮件（见 D21/D22）；OAuth 仍未规划。
+- 退出 UI 与全站身份展示（`signOutUser()` 已就绪但无按钮）→ 10C。
 - 部署域名与 Vercel 环境变量配置。
 - 信用分聚合算法（出勤率/评分权重）。
