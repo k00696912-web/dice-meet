@@ -4,18 +4,42 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { Button, Card, CardContent, Input, FormField, Alert, H3 } from "@/components/ui";
 import { Icon } from "@/components/dashboard/icons";
+import { supabase } from "@/lib/supabase";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 与 lib/profile.ts 的服务端校验保持一致：档案写入前服务端还会再校验一次，前端规则只是提前反馈。
+const USERNAME_RE = /^[a-zA-Z0-9_]{2,20}$/;
+const PASSWORD_MIN = 6;
+const DISPLAY_NAME_MAX = 30;
 
 interface RegisterErrors {
   username?: string;
+  display_name?: string;
   email?: string;
   password?: string;
   confirm?: string;
 }
 
+function describeAuthError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("already registered") || m.includes("already exists")) {
+    return "这个邮箱已经注册过了。请先去登录，或回邮箱里找那封确认邮件。";
+  }
+  if (m.includes("rate limit") || m.includes("too many") || m.includes("over quota")) {
+    return "确认邮件发送过于频繁。当前用的是认证服务的默认发信通道，限额很紧，请稍后再试。";
+  }
+  if (m.includes("password")) {
+    return `密码没有通过认证服务的要求（默认至少 ${PASSWORD_MIN} 位）。`;
+  }
+  if (m.includes("email") || m.includes("invalid") || m.includes("block")) {
+    return "邮箱没有通过认证服务的校验，请检查拼写后重试。";
+  }
+  return "注册没有成功，请稍后重试。";
+}
+
 export default function RegisterPage() {
   const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -23,14 +47,22 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errors, setErrors] = useState<RegisterErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [autoConfirmed, setAutoConfirmed] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   function validate(): RegisterErrors {
     const next: RegisterErrors = {};
     if (!username.trim()) next.username = "请输入用户名";
+    else if (!USERNAME_RE.test(username.trim()))
+      next.username = "用户名只能是 2–20 位字母、数字或下划线";
+    if (!displayName.trim()) next.display_name = "请输入显示名";
+    else if (displayName.trim().length > DISPLAY_NAME_MAX)
+      next.display_name = `显示名不能超过 ${DISPLAY_NAME_MAX} 个字符`;
     if (!email.trim()) next.email = "请输入邮箱";
     else if (!EMAIL_RE.test(email.trim())) next.email = "邮箱格式不正确";
     if (!password) next.password = "请输入密码";
+    else if (password.length < PASSWORD_MIN) next.password = `密码至少 ${PASSWORD_MIN} 位`;
     if (!confirm) next.confirm = "请再次输入密码";
     else if (confirm !== password) next.confirm = "两次输入的密码不一致";
     return next;
@@ -41,12 +73,41 @@ export default function RegisterPage() {
     if (submitting) return;
     const next = validate();
     setErrors(next);
-    setDone(false);
+    setSent(false);
+    setAutoConfirmed(false);
+    setAuthError(null);
     if (Object.keys(next).length > 0) return;
+
     setSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    setSubmitting(false);
-    setDone(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { username: username.trim(), display_name: displayName.trim() },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        if (process.env.NODE_ENV === "development") {
+          // 原始提示只留在开发态控制台，页面上不展示底层错误详情。
+          console.warn("signUp failed:", error.message);
+        }
+        setAuthError(describeAuthError(error.message));
+      } else {
+        setSent(true);
+        // Confirm email 开启时 signUp 不应返回 session；返回了说明配置与预期不一致。
+        setAutoConfirmed(!!data.session);
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("signUp threw:", err);
+      }
+      setAuthError("无法连接认证服务，请检查网络后重试。");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -77,10 +138,28 @@ export default function RegisterPage() {
                   id="register-username"
                   type="text"
                   autoComplete="username"
-                  placeholder="你的冒险者代号"
+                  placeholder="字母、数字或下划线，2–20 位"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   aria-invalid={!!errors.username}
+                />
+              </FormField>
+
+              <FormField
+                label="显示名"
+                required
+                htmlFor="register-display-name"
+                error={errors.display_name}
+                help="公告板上展示的名字，可以用中文。"
+              >
+                <Input
+                  id="register-display-name"
+                  type="text"
+                  autoComplete="nickname"
+                  placeholder="例如：老李"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  aria-invalid={!!errors.display_name}
                 />
               </FormField>
 
@@ -102,7 +181,7 @@ export default function RegisterPage() {
                     id="register-password"
                     type={showPassword ? "text" : "password"}
                     autoComplete="new-password"
-                    placeholder="设置一个密码"
+                    placeholder={`至少 ${PASSWORD_MIN} 位`}
                     className="pr-11"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -173,22 +252,43 @@ export default function RegisterPage() {
                         strokeLinecap="round"
                       />
                     </svg>
-                    注册中…
+                    提交中…
                   </>
                 ) : (
-                  "创建档案"
+                  "注册并发送确认邮件"
                 )}
               </Button>
             </form>
 
-            {done && (
-              <Alert variant="success" title="前端模拟：注册交互已完成" className="mt-4">
-                这是纯前端演示，未连接真实认证服务，也未创建任何账号。
+            {sent && !autoConfirmed && (
+              <Alert variant="success" title="验证邮件已发送" className="mt-4">
+                我们给 <span className="font-medium">{email.trim()}</span> 发了一封确认邮件。
+                点开邮件里的链接会自动完成验证并建立你的档案；收不到请先看垃圾箱。
+                确认之前还不能发布跑团。
+                <Link
+                  href="/sessions"
+                  className="font-medium underline underline-offset-2 ml-1 whitespace-nowrap"
+                >
+                  先去大厅逛逛 →
+                </Link>
+              </Alert>
+            )}
+
+            {sent && autoConfirmed && (
+              <Alert variant="warning" title="账号已创建，但没有要求邮箱确认" className="mt-4">
+                认证服务这次直接返回了会话，说明邮箱确认开关与我们的预期配置不一致。
+                档案要等确认链接走完才会建立，请先检查认证服务的确认邮件设置。
+              </Alert>
+            )}
+
+            {authError && (
+              <Alert variant="error" title="注册未完成" className="mt-4">
+                {authError}
                 <Link
                   href="/login"
                   className="font-medium underline underline-offset-2 ml-1 whitespace-nowrap"
                 >
-                  返回登录 →
+                  去登录 →
                 </Link>
               </Alert>
             )}

@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import {
   Alert,
   Badge,
@@ -173,28 +172,27 @@ export default function CreateSessionPage() {
     setSubmitting(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setError("发布跑团需要先登录（用户系统将于下一阶段上线）");
-        setSubmitting(false);
-        return;
-      }
-
+      // 身份由服务端从 Cookie Session 读取：这里不再取 token、也不再手工拼 Bearer。
       const res = await fetch("/api/sessions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "发布失败");
-      setSuccess("委托已登记到公告板，正在前往详情页…");
-      router.push(`/sessions/${json.session.id}`);
+      const json = await res.json().catch(() => ({}));
+
+      if (res.status === 401) {
+        setError("登录状态已过期，请重新登录后再发布。");
+      } else if (json.code === "PROFILE_NOT_FOUND") {
+        setError("账号已登录，但还没有冒险者档案。请回到邮箱完成确认链接后再发布。");
+      } else if (!res.ok) {
+        setError(json.error || "发布失败，请稍后重试。");
+      } else {
+        setSuccess("委托已登记到公告板，正在前往详情页…");
+        router.push(`/sessions/${json.session.id}`);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "发布失败");
+      setError("无法连接服务器，本次发布没有提交。");
     } finally {
       setSubmitting(false);
     }

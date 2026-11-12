@@ -2,8 +2,11 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button, Card, CardContent, Input, FormField, Alert, H3 } from "@/components/ui";
 import { Icon } from "@/components/dashboard/icons";
+import { supabase } from "@/lib/supabase";
+import { safeRedirectPath } from "@/lib/auth-routes";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -12,13 +15,31 @@ interface LoginErrors {
   password?: string;
 }
 
+function describeLoginError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("email not confirmed") || m.includes("not confirmed")) {
+    return "这个邮箱还没有完成确认。请回邮箱点一次确认邮件；链接过期就重新提交一次注册。";
+  }
+  if (m.includes("invalid login credentials") || m.includes("invalid credentials")) {
+    return "邮箱或密码不正确。";
+  }
+  if (m.includes("user not found") || m.includes("no user found")) {
+    return "没有找到这个邮箱对应的账号。";
+  }
+  if (m.includes("rate limit") || m.includes("too many") || m.includes("over quota")) {
+    return "登录尝试过于频繁，请稍后再试。";
+  }
+  return "登录没有成功，请稍后重试。";
+}
+
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<LoginErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   function validate(): LoginErrors {
     const next: LoginErrors = {};
@@ -33,12 +54,38 @@ export default function LoginPage() {
     if (submitting) return;
     const next = validate();
     setErrors(next);
-    setDone(false);
+    setAuthError(null);
     if (Object.keys(next).length > 0) return;
+
     setSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    setSubmitting(false);
-    setDone(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        if (process.env.NODE_ENV === "development") {
+          // 原始提示只留在开发态控制台，页面上不显示底层错误详情。
+          console.warn("signIn failed:", error.message);
+        }
+        setAuthError(describeLoginError(error.message));
+        return;
+      }
+
+      // Session 由 @supabase/ssr 写进 Cookie；replace 后用 refresh 让服务端重新按新 Cookie 取数。
+      // redirect 从 location.search 读，避免 useSearchParams 把整页拖成客户端渲染。
+      const redirect = new URLSearchParams(window.location.search).get("redirect");
+      router.replace(safeRedirectPath(redirect));
+      router.refresh();
+    } catch (err) {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("signIn threw:", err);
+      }
+      setAuthError("无法连接认证服务，请检查网络后重试。");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -132,14 +179,14 @@ export default function LoginPage() {
               </Button>
             </form>
 
-            {done && (
-              <Alert variant="success" title="前端模拟：登录交互已完成" className="mt-4">
-                这是纯前端演示，未连接真实认证服务，也未创建任何登录状态。
+            {authError && (
+              <Alert variant="error" title="登录未完成" className="mt-4">
+                {authError}
                 <Link
-                  href="/sessions"
+                  href="/register"
                   className="font-medium underline underline-offset-2 ml-1 whitespace-nowrap"
                 >
-                  前往跑团大厅 →
+                  去注册 →
                 </Link>
               </Alert>
             )}

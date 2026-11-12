@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { getPublicClient, getAuthClient, extractToken } from "@/lib/supabase-server";
+import { getPublicClient, createServerSupabase } from "@/lib/supabase-server";
+import { readProfileIdentity } from "@/lib/profile";
 import type { CreateSessionInput } from "@/lib/types";
 
 const DM_EMBED = "dm:profiles!sessions_dm_id_fkey(id, username, display_name, avatar_url, role, rating, attendance_rate)";
@@ -34,25 +35,44 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const token = extractToken(request);
-  if (!token) {
-    return Response.json({ error: "请先登录" }, { status: 401 });
-  }
+  // 身份只认 Cookie Session：浏览器不再手工拼 Bearer，服务端也不接受请求体里的身份字段。
+  const supabase = createServerSupabase();
 
-  const supabase = getAuthClient(token);
   const {
     data: { user },
     error: authError,
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return Response.json({ error: "登录已失效，请重新登录" }, { status: 401 });
+    return Response.json({ error: "请先登录", code: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  const body = (await request.json()) as CreateSessionInput;
+  const profile = await readProfileIdentity(supabase, user.id);
+  if (profile === "missing") {
+    return Response.json(
+      {
+        error: "账号已登录，但尚未建立冒险者档案。请完成邮箱确认后再发布跑团。",
+        code: "PROFILE_NOT_FOUND",
+      },
+      { status: 403 }
+    );
+  }
+  if (profile === "unavailable") {
+    return Response.json(
+      { error: "暂时无法确认档案状态，请稍后重试。", code: "PROFILE_CHECK_FAILED" },
+      { status: 503 }
+    );
+  }
+
+  let body: CreateSessionInput;
+  try {
+    body = (await request.json()) as CreateSessionInput;
+  } catch {
+    return Response.json({ error: "请求体不是有效的 JSON。", code: "INVALID_BODY" }, { status: 400 });
+  }
 
   if (!body.title || !body.system || !body.style || !body.time_schedule || !body.description) {
-    return Response.json({ error: "缺少必填字段" }, { status: 400 });
+    return Response.json({ error: "缺少必填字段", code: "MISSING_FIELDS" }, { status: 400 });
   }
 
   const { data, error } = await supabase
@@ -73,7 +93,12 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+    // 底层详情只进服务端日志，不回传浏览器。
+    console.error("create session failed:", error.message);
+    return Response.json(
+      { error: "发布失败，请稍后重试。", code: "SESSION_CREATE_FAILED" },
+      { status: 500 }
+    );
   }
 
   return Response.json({ session: data }, { status: 201 });
