@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Icon } from "./icons";
+import UserMenu from "./UserMenu";
+import type { ServerIdentity } from "@/lib/auth-session";
 
 const TITLES: { match: (p: string) => boolean; title: string; sub: string }[] = [
   { match: (p) => p === "/", title: "公会大厅", sub: "欢迎回到冒险者公会" },
@@ -18,7 +20,13 @@ const TITLES: { match: (p: string) => boolean; title: string; sub: string }[] = 
   { match: (p) => p.startsWith("/profile"), title: "冒险者档案", sub: "你的公会信用档案" },
 ];
 
-export default function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
+export default function Topbar({
+  identity,
+  onMenuClick,
+}: {
+  identity: ServerIdentity;
+  onMenuClick: () => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [keyword, setKeyword] = useState("");
@@ -90,17 +98,7 @@ export default function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
 
       <div className="w-px h-7 bg-border hidden sm:block" />
 
-      <div className="flex items-center gap-2.5">
-        <span className="flex items-center justify-center w-9 h-9 rounded-full bg-primary/10 text-primary border border-border">
-          <Icon name="shield" className="w-5 h-5" />
-        </span>
-        <div className="hidden sm:block leading-tight">
-          <p className="text-sm font-medium text-foreground">冒险者</p>
-          <Link href="/login" className="text-xs text-accent-600 hover:text-accent-700">
-            登录 / 注册
-          </Link>
-        </div>
-      </div>
+      <UserMenu identity={identity} />
     </header>
   );
 }

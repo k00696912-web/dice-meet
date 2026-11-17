@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Avatar } from "@/components/ui";
+import type { ServerIdentity } from "@/lib/auth-session";
 import { Icon, type IconName } from "./icons";
 
 interface NavItem {
@@ -49,8 +51,55 @@ function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+// 与 Topbar 共用服务端 identity 状态，这里只决定卡片文案，不另建身份查询。
+function guildCard(identity: ServerIdentity) {
+  switch (identity.state) {
+    case "ready":
+      return {
+        title: identity.displayName,
+        sub: `@${identity.username}`,
+        note: null as string | null,
+        withAvatar: true,
+        cta: { href: "/profile", label: "个人资料" } as { href: string; label: string } | null,
+      };
+    case "profile-missing":
+      return {
+        title: "已登录 · 未建档",
+        sub: null,
+        note: "邮箱确认尚未完成，公会还没有你的冒险者档案。",
+        withAvatar: false,
+        cta: null,
+      };
+    case "unavailable":
+      return {
+        title: "身份信息暂时不可用",
+        sub: null,
+        note: "档案读取失败，身份状态以服务端为准，请稍后刷新。",
+        withAvatar: false,
+        cta: null,
+      };
+    case "anonymous":
+      return {
+        title: "冒险者档案",
+        sub: null,
+        note: "登录后同步你的跑团与信用档案。",
+        withAvatar: false,
+        cta: { href: "/login", label: "登录 / 注册" },
+      };
+  }
+}
+
+export default function Sidebar({
+  identity,
+  open,
+  onClose,
+}: {
+  identity: ServerIdentity;
+  open: boolean;
+  onClose: () => void;
+}) {
   const pathname = usePathname();
+  const card = guildCard(identity);
 
   return (
     <>
@@ -150,20 +199,34 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Bottom guild card */}
         <div className="p-3 border-t border-border shrink-0">
           <div className="rounded-xl bg-primary/5 border border-border p-3">
-            <div className="flex items-center gap-2 mb-1 text-primary">
-              <Icon name="shield" className="w-4 h-4 text-accent-600" />
-              <span className="text-sm font-serif font-semibold">冒险者档案</span>
-            </div>
-            <p className="text-xs text-muted mb-2.5 leading-relaxed">
-              登录后同步你的跑团与信用档案。
-            </p>
-            <Link
-              href="/login"
-              onClick={onClose}
-              className="block text-center text-xs font-medium py-1.5 rounded-lg bg-primary text-white hover:bg-primary-600 transition"
-            >
-              登录 / 注册
-            </Link>
+            {card.withAvatar ? (
+              <div className="flex items-center gap-2.5 mb-2">
+                <Avatar name={card.title} size="sm" />
+                <div className="min-w-0 leading-tight">
+                  <p className="text-sm font-serif font-semibold text-primary truncate">
+                    {card.title}
+                  </p>
+                  <p className="text-[11px] text-muted truncate">{card.sub}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-1 text-primary">
+                <Icon name="shield" className="w-4 h-4 text-accent-600" />
+                <span className="text-sm font-serif font-semibold">{card.title}</span>
+              </div>
+            )}
+            {card.note && (
+              <p className="text-xs text-muted mb-2.5 leading-relaxed">{card.note}</p>
+            )}
+            {card.cta && (
+              <Link
+                href={card.cta.href}
+                onClick={onClose}
+                className="block text-center text-xs font-medium py-1.5 rounded-lg bg-primary text-white hover:bg-primary-600 transition"
+              >
+                {card.cta.label}
+              </Link>
+            )}
           </div>
         </div>
       </aside>

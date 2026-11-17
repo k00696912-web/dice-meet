@@ -22,7 +22,8 @@ export type IconName =
   | "arrow-right"
   | "clock"
   | "eye"
-  | "eye-off";
+  | "eye-off"
+  | "logout";
 
 const paths: Record<IconName, React.ReactNode> = {
   compass: (
@@ -133,6 +134,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M9.9 5.7A9.8 9.8 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3 3.8M6.2 6.9A17 17 0 0 0 2.5 12S6 18.5 12 18.5a9.6 9.6 0 0 0 4-.9" />
       <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
       <path d="M3 3l18 18" />
+    </>
+  ),
+  logout: (
+    <>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
     </>
   ),
 };
