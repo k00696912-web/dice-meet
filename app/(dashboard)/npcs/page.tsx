@@ -20,6 +20,7 @@ import {
   type TabItem,
 } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { fetchSessionList } from "@/lib/sessions-client";
 import type { Session } from "@/lib/types";
 import {
   NPCS,
@@ -58,10 +59,9 @@ export default function NpcsPage() {
   const fetchSessions = useCallback(async () => {
     setSessionsState("loading");
     try {
-      const res = await fetch("/api/sessions");
-      if (!res.ok) throw new Error("加载失败");
-      const json = await res.json();
-      setSessions(json.sessions ?? []);
+      const { sessions: rows, error } = await fetchSessionList();
+      if (error) throw new Error("加载失败");
+      setSessions(rows);
       setSessionsState("ready");
     } catch {
       setSessionsState("error");

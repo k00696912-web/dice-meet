@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Alert, Avatar, Badge, Button, Card, CardContent, EmptyState } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { fetchSessionList } from "@/lib/sessions-client";
 import type { Session } from "@/lib/types";
 import { NPCS, RELATIONSHIP_META, STATE_META, pickSession, type Npc } from "../mock-npcs";
 
@@ -25,10 +26,9 @@ function NpcDetail({ npc }: { npc: Npc }) {
   const fetchSessions = useCallback(async () => {
     setSessionsState("loading");
     try {
-      const res = await fetch("/api/sessions");
-      if (!res.ok) throw new Error("加载失败");
-      const json = await res.json();
-      setSessions(json.sessions ?? []);
+      const { sessions: rows, error } = await fetchSessionList();
+      if (error) throw new Error("加载失败");
+      setSessions(rows);
       setSessionsState("ready");
     } catch {
       setSessionsState("error");

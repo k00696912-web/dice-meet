@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, CardContent, Badge, Select, Alert, Input, EmptyState } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { fetchSessionList } from "@/lib/sessions-client";
 import type { Session } from "@/lib/types";
 
 const SYSTEMS = ["全部", "D&D 5e", "COC 7th", "Cyberpunk RED", "泛用无界"];
@@ -74,22 +75,24 @@ export default function SessionsPage() {
 
     setLoading(true);
     setError(null);
-    const params = new URLSearchParams();
-    if (filters.system !== "全部") params.set("system", filters.system);
-    if (filters.style !== "全部") params.set("style", filters.style);
-    if (filters.voice_or_text) params.set("voice_or_text", filters.voice_or_text);
-    if (filters.beginner_friendly) params.set("beginner_friendly", "true");
 
     try {
-      const res = await fetch(`/api/sessions?${params.toString()}`, { signal: controller.signal });
-      const json = await res.json().catch(() => null);
+      const { sessions: rows, error: queryError } = await fetchSessionList(
+        {
+          system: filters.system !== "全部" ? filters.system : undefined,
+          style: filters.style !== "全部" ? filters.style : undefined,
+          voice_or_text: filters.voice_or_text || undefined,
+          beginner_friendly: filters.beginner_friendly || undefined,
+        },
+        controller.signal
+      );
       if (requestId !== requestIdRef.current) return;
-      if (!res.ok || !json?.sessions) {
-        console.error(`[sessions] 委托列表读取失败 status=${res.status}`, json?.error);
+      if (queryError) {
+        console.error("[sessions] 委托列表读取失败", queryError.code, queryError.message);
         setError(LOAD_ERROR_COPY);
         return;
       }
-      setSessions(json.sessions as Session[]);
+      setSessions(rows);
     } catch (err) {
       // 被新请求或卸载主动取消，不算用户可见故障
       if (requestId !== requestIdRef.current || controller.signal.aborted) return;

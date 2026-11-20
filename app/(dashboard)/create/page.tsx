@@ -21,6 +21,8 @@ import {
   Textarea,
 } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { supabase } from "@/lib/supabase";
+import { createSession } from "@/lib/sessions-client";
 import type { VoiceOrText } from "@/lib/types";
 
 const SYSTEMS = ["D&D 5e", "COC 7th", "Cyberpunk RED", "泛用无界", "其他"];
@@ -172,25 +174,36 @@ export default function CreateSessionPage() {
     setSubmitting(true);
 
     try {
-      // 身份由服务端从 Cookie Session 读取：这里不再取 token、也不再手工拼 Bearer。
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
+      // dm_id 只取 auth.getUser() 的认证身份，绝不使用表单值；浏览器直连数据库，RLS 兜底。
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      const json = await res.json().catch(() => ({}));
-
-      if (res.status === 401) {
-        setError("登录状态已过期，请重新登录后再发布。");
-      } else if (json.code === "PROFILE_NOT_FOUND") {
-        setError("账号已登录，但还没有冒险者档案。请回到邮箱完成确认链接后再发布。");
-      } else if (!res.ok) {
-        setError(json.error || "发布失败，请稍后重试。");
-      } else {
-        setSuccess("委托已登记到公告板，正在前往详情页…");
-        router.push(`/sessions/${json.session.id}`);
+      if (authError || !user) {
+        setError("发布跑团需要先登录，请登录后再试（登录状态可能已过期）。");
+        return;
       }
+
+      const { session, error: insertError } = await createSession(formData, user.id);
+
+      if (insertError || !session) {
+        // 原始数据库错误只进 console，不进 DOM。
+        console.error("create session failed:", insertError?.code, insertError?.message);
+        if (insertError?.code === "23503") {
+          setError("账号已登录，但还没有冒险者档案。请回到邮箱完成确认链接后再发布。");
+        } else if (insertError?.code === "23514") {
+          setError("最大玩家人数需在 2–10 之间，请调整后重新发布。");
+        } else if (insertError?.code === "42501") {
+          setError("没有发布权限：登录状态可能已过期，请重新登录后再发布。");
+        } else {
+          setError("发布失败，请稍后重试。");
+        }
+        return;
+      }
+
+      setSuccess("委托已登记到公告板，正在前往详情页…");
+      router.push(`/sessions/${session.id}`);
     } catch (err) {
       setError("无法连接服务器，本次发布没有提交。");
     } finally {
@@ -565,8 +578,8 @@ export default function CreateSessionPage() {
               发布须知
             </p>
             <ul className="space-y-2 text-xs text-muted leading-relaxed list-disc pl-4">
-              <li>提交真实调用 POST /api/sessions，写入的是公告板真实委托，不是演示数据。</li>
-              <li>登录体系尚未接入：未登录时会提示「发布跑团需要先登录」。</li>
+              <li>提交由浏览器直连数据库写入公告板真实委托（受 RLS 保护），不是演示数据。</li>
+              <li>未登录时无法发布，会提示先登录；已登录但尚未建档也会被拦下并给出指引。</li>
               <li>校验通过后才会发请求；未通过的字段会标红并自动聚焦第一个。</li>
             </ul>
           </div>

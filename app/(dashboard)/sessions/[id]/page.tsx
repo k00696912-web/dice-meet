@@ -15,6 +15,7 @@ import {
   SkeletonCircle,
 } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { fetchSessionDetail } from "@/lib/sessions-client";
 import type { Session } from "@/lib/types";
 
 type JoinState = "idle" | "applied" | "joined";
@@ -118,19 +119,18 @@ export default function SessionDetailPage() {
       setMissing(false);
       setJoinState("idle");
       try {
-        const res = await fetch(`/api/sessions/${id}`);
-        // 接口层已把 PostgREST 的 PGRST116 映射成 404，这里按状态码判定，不解析错误文案
-        if (res.status === 404) {
+        const { session: row, error: queryError } = await fetchSessionDetail(id);
+        // PostgREST 的 PGRST116（.single() 查无此行）直接映射为 404 态，不解析错误文案
+        if (queryError?.code === "PGRST116") {
           if (!cancelled) setMissing(true);
           return;
         }
-        const json = res.ok ? await res.json().catch(() => null) : null;
-        if (!res.ok || !json?.session) {
-          console.error(`[session-detail] 读取失败 id=${id} status=${res.status}`, json?.error);
+        if (queryError || !row) {
+          console.error(`[session-detail] 读取失败 id=${id}`, queryError?.code, queryError?.message);
           if (!cancelled) setError(LOAD_ERROR_COPY);
           return;
         }
-        if (!cancelled) setSession(json.session as Session);
+        if (!cancelled) setSession(row);
       } catch (err) {
         console.error(`[session-detail] 请求异常 id=${id}`, err);
         if (!cancelled) setError(LOAD_ERROR_COPY);

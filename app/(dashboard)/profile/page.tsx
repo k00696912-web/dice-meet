@@ -18,10 +18,14 @@ import {
   SkeletonCircle,
 } from "@/components/ui";
 import { Icon } from "@/components/dashboard/icons";
+import { supabase } from "@/lib/supabase";
 // 上限直接取后端常量，避免两边字数规则漂移；type-only 导入不会把服务端代码带进客户端。
 import {
+  OWN_PROFILE_COLUMNS,
   PROFILE_BIO_MAX as BIO_MAX,
   PROFILE_DISPLAY_NAME_MAX as NICKNAME_MAX,
+  readOwnProfile,
+  validateProfilePatch,
   type OwnProfile,
 } from "@/lib/profile";
 
@@ -32,11 +36,6 @@ const ROLE_LABEL: Record<OwnProfile["role"], string> = {
 };
 
 type LoadState = "loading" | "ready" | "unauthenticated" | "error";
-
-interface ProfileResponse {
-  profile?: OwnProfile;
-  error?: string;
-}
 
 function Stat({ value, label }: { value: number | string; label: string }) {
   return (
@@ -103,18 +102,27 @@ export default function ProfilePage() {
     setState("loading");
     setLoadError("");
     try {
-      const res = await fetch("/api/profile", { headers: { Accept: "application/json" } });
-      const json: ProfileResponse | null = await res.json().catch(() => null);
-      if (res.status === 401) {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError || !user) {
         setState("unauthenticated");
         return;
       }
-      if (!res.ok || !json?.profile) {
-        setLoadError(json?.error ?? "暂时无法读取你的档案，请稍后重试。");
+      // 只读本人档案：九列显式清单与原 API 持平，RLS 兜底。
+      const result = await readOwnProfile(supabase, user.id);
+      if (result.state === "unavailable") {
+        setLoadError("暂时无法读取你的档案，请稍后重试。");
         setState("error");
         return;
       }
-      setProfile(json.profile);
+      if (result.state === "missing") {
+        setLoadError("账号已登录，但还没有冒险者档案。请回到邮箱完成确认链接后再试。");
+        setState("error");
+        return;
+      }
+      setProfile(result.profile);
       setState("ready");
     } catch {
       setLoadError("网络异常，未能连接到服务器。请检查网络后重试。");
@@ -158,18 +166,34 @@ export default function ProfilePage() {
     setSaving(true);
     setSaveError("");
     try {
-      const res = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ display_name: nickname, bio: draft.bio }),
-      });
-      const json: ProfileResponse | null = await res.json().catch(() => null);
-      if (!res.ok || !json?.profile) {
-        // 失败保留 draft 与编辑态，用户输入不丢。
-        setSaveError(json?.error ?? "保存失败，请稍后重试。");
+      // 复用与原 API 相同的白名单校验器：只接受 display_name/bio，整体拒绝其余键。
+      const checked = validateProfilePatch({ display_name: nickname, bio: draft.bio });
+      if (!checked.ok) {
+        setSaveError(checked.message);
         return;
       }
-      setProfile(json.profile);
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+      if (authError || !user) {
+        setSaveError("登录状态已过期，请重新登录后再保存。");
+        return;
+      }
+      // 更新对象来自校验器白名单结果，id 只取认证身份；RLS 保证只能改本人行。
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(checked.patch)
+        .eq("id", user.id)
+        .select(OWN_PROFILE_COLUMNS)
+        .single();
+      if (error || !data) {
+        // 失败保留 draft 与编辑态，用户输入不丢；原始错误只进 console。
+        console.error("profile update failed:", error?.code, error?.message);
+        setSaveError("保存失败，请稍后重试。");
+        return;
+      }
+      setProfile(data as OwnProfile);
       setEditing(false);
       setSaved(true);
     } catch {
@@ -283,6 +307,10 @@ export default function ProfilePage() {
                   aria-invalid={!!errors.bio}
                   disabled={saving}
                 />
+                <p className="flex items-center gap-1.5 text-xs text-accent-700 mt-1.5">
+                  <Icon name="eye" className="w-3.5 h-3.5" />
+                  简介会公开显示
+                </p>
               </FormField>
 
               <div className="rounded-lg border border-border bg-primary/5 p-4 text-xs text-muted leading-relaxed">

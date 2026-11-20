@@ -23,6 +23,7 @@ import {
   Textarea,
 } from "@/components/ui";
 import { Icon, type IconName } from "@/components/dashboard/icons";
+import { fetchSessionList } from "@/lib/sessions-client";
 import type { Session } from "@/lib/types";
 
 // 取值与 database/schema.sql 中 ai_npcs.relationship 的 CHECK 完全一致
@@ -144,10 +145,9 @@ export default function NpcCreatePage() {
   const fetchSessions = useCallback(async () => {
     setSessionsState("loading");
     try {
-      const res = await fetch("/api/sessions");
-      if (!res.ok) throw new Error("加载失败");
-      const json = await res.json();
-      setSessions(json.sessions ?? []);
+      const { sessions: rows, error } = await fetchSessionList();
+      if (error) throw new Error("加载失败");
+      setSessions(rows);
       setSessionsState("ready");
     } catch {
       setSessionsState("error");
@@ -228,7 +228,7 @@ export default function NpcCreatePage() {
 
       {sessionsState === "error" && (
         <Alert variant="warning" title="公告板委托加载失败" className="mb-6">
-          「所属跑团」必须绑定真实委托，当前读不到 <code className="mx-1 px-1 rounded bg-white/50">/api/sessions</code>，
+          「所属跑团」必须绑定真实委托，当前读不到 <code className="mx-1 px-1 rounded bg-white/50">sessions</code> 公告板数据，
           因此暂时无法提交。
           <button
             type="button"
